@@ -10,7 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
+	"unsafe"
+	"C"
 
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/opencontainers/runc/libcontainer/cgroups/fs2"
@@ -359,6 +362,49 @@ const (
   PRIO_USER    = 2
 )
 
+var (
+	errEINVAL error = syscall.EINVAL
+	errEPERM  error = syscall.EPERM
+	errESRCH  error = syscall.ESRCH
+)
+
+func errnoErr(e syscall.Errno) error {
+	switch e {
+	case 0:
+		return nil
+	case syscall.EINVAL:
+		return errEINVAL
+	case syscall.EPERM:
+		return errEPERM
+	case syscall.ESRCH:
+		return errESRCH
+	}
+	return e
+}
+
+const (
+	SCHED_NORMAL   = 0
+	SCHED_FIFO     = 1
+	SCHED_RR       = 2
+	SCHED_BATCH    = 3
+	// SCHED_ISO
+	SCHED_IDLE     = 5
+	SCHED_DEADLINE = 6
+	SCHED_RESET_ON_FORK = 0x40000000
+)
+
+type Sched_param struct {
+	sched_priority C.int
+}
+
+func Sched_setscheduler(pid int, policy int, param *Sched_param) (err error) {
+	_, _, e1 := syscall.Syscall(syscall.SYS_SCHED_SETSCHEDULER, uintptr(pid), uintptr(policy), uintptr(unsafe.Pointer(param)))
+	if e1 != 0 {
+		err = errnoErr(e1)
+	}
+	return
+}
+
 func (p *initProcess) start() (retErr error) {
 	defer p.messageSockPair.parent.Close() //nolint: errcheck
 	err := p.cmd.Start()
@@ -371,11 +417,19 @@ func (p *initProcess) start() (retErr error) {
 		return fmt.Errorf("unable to start init: %w", err)
 	}
 
-	if true {
+	if false {
 		// value range -20..19 (negative is higher)
 		err = syscall.Setpriority(PRIO_PROCESS, p.pid(), -5)
 		if err != nil {
 			logrus.WithError(err).Warn("unable to set priority")
+		}
+	} else if true {
+		var param Sched_param
+		// value range 1..99
+		param.sched_priority = 42
+		err = Sched_setscheduler(p.pid(), SCHED_FIFO, &param)
+		if err != nil {
+			logrus.WithError(err).Warn("unable to set scheduler")
 		}
 	}
 
