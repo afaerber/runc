@@ -353,6 +353,12 @@ func (p *initProcess) waitForChildExit(childPid int) error {
 	return nil
 }
 
+const (
+  PRIO_PROCESS = 0
+  PRIO_PGRP    = 1
+  PRIO_USER    = 2
+)
+
 func (p *initProcess) start() (retErr error) {
 	defer p.messageSockPair.parent.Close() //nolint: errcheck
 	err := p.cmd.Start()
@@ -363,6 +369,14 @@ func (p *initProcess) start() (retErr error) {
 	if err != nil {
 		p.process.ops = nil
 		return fmt.Errorf("unable to start init: %w", err)
+	}
+
+	if true {
+		// value range -20..19 (negative is higher)
+		err = syscall.Setpriority(PRIO_PROCESS, p.pid(), -5)
+		if err != nil {
+			logrus.WithError(err).Warn("unable to set priority")
+		}
 	}
 
 	waitInit := initWaiter(p.messageSockPair.parent)
